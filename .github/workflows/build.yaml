@@ -1,0 +1,74 @@
+# build.yaml
+# uses pbjkit to compile pinyinbase source files
+# creates a new PBDICT release in repo
+# author: The Pffy Authors
+# license: MIT
+
+name: build-pbdict
+
+on:
+  milestone:
+    types: [closed]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+        - name: Set release tag name
+          run: |
+            echo '::set-output name=TAGNAME::'$(date +"v%Y.%j") 
+            echo '::set-output name=OUTFILE::'pbdict-$(date +"%Y-%j").zip
+          id: heretag
+        - name: Get release tag name
+          run: |
+            echo "${{ steps.heretag.outputs.TAGNAME }}"            
+            echo "${{ steps.heretag.outputs.OUTFILE }}"                        
+        - name: Checkout code
+          uses: actions/checkout@v3        
+        - name: Build project zip asset
+          id: buildzip
+          run: |
+            npm i -g github:pffy/pbjkit
+            git clone https://github.com/pffy/pinyinbase
+            pbj -i pinyinbase/vocab/*.txt
+            sed -i 's/\[title-here\]/PBDICT Hanyu Pinyin Dictionary/g' pb.txt
+            head -1 pb.txt
+            mv pb.txt pbdict_ts.u8
+            COUNT=$(egrep -i entries= pbdict_ts.u8 | cut -d "=" -f 2-)        
+            echo '::set-output name=ENTRIES::'$COUNT
+            zip --junk-paths ${{ steps.heretag.outputs.OUTFILE }} pbdict_ts.u8
+        - name: Create Release
+          id: create_release          
+          uses: actions/create-release@v1
+          env:
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          with:
+            tag_name: ${{ steps.heretag.outputs.TAGNAME }}
+            release_name: ${{ steps.heretag.outputs.TAGNAME }}
+            body: |
+              ## Details
+              * PBDICT, a Hanyu Pinyin dictionary.
+              * Compiled with [pbjkit][pbjkit] using [Pinyinbase][pb] source files.
+              * Number of entries: ${{ steps.buildzip.outputs.ENTRIES }}.
+              * License: https://creativecommons.org/publicdomain/zero/1.0/
+              ![cc0-public-domain][png_cc0]
+              ---
+              [pbjkit]: https://github.com/pffy/pbjkit
+              [pb]: https://github.com/pffy/pinyinbase
+              [png_cc0]: https://raw.githubusercontent.com/pffy/b/main/png/cc0-88x31.png
+            draft: false
+            prerelease: false
+        - name: Upload Release Asset
+          id: upload-release-asset 
+          uses: actions/upload-release-asset@v1
+          env:
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          with:
+            upload_url: ${{ steps.create_release.outputs.upload_url }} 
+            asset_path: ./${{ steps.heretag.outputs.OUTFILE }}
+            asset_name: ${{ steps.heretag.outputs.OUTFILE }}
+            asset_content_type: application/zip
